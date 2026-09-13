@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!password) return;
         
         try {
-            const res = await fetch(KVDB_URL);
+            const res = await fetch(KVDB_URL + '?t=' + Date.now(), { cache: 'no-store' });
             if (!res.ok) {
                 if (password === '0923') {
                     aesKey = password;
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // KVDB API Logic
     async function fetchTasks() {
         try {
-            const res = await fetch(KVDB_URL);
+            const res = await fetch(KVDB_URL + '?t=' + Date.now(), { cache: 'no-store' });
             if (!res.ok) return false;
             
             const data = await res.json();
