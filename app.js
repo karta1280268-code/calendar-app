@@ -17,32 +17,52 @@ document.addEventListener('DOMContentLoaded', () => {
     const taskList = document.getElementById('task-list');
     const newTaskInput = document.getElementById('new-task-input');
     const addTaskBtn = document.getElementById('add-task-btn');
+    
+    // PWA Install Button
+    const installBtn = document.getElementById('install-btn');
+    let deferredPrompt;
 
     // KVDB API Endpoint
     const KVDB_URL = 'https://kvdb.io/XwVvu5y682869iBYPGKHfJ/calendar';
 
     // State
-    let currentDate = new Date(); // Date used for navigating months
-    let selectedDate = null; // YYYY-MM-DD string
-    let tasks = []; // Array of all tasks
+    let currentDate = new Date();
+    let selectedDate = null;
+    let tasks = [];
     let aesKey = null;
 
-    // Check if we already logged in during this session
+    // Check auth
     checkAuth();
+
+    // PWA Install Logic
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if(installBtn) installBtn.classList.remove('hidden');
+    });
+
+    if(installBtn) {
+        installBtn.addEventListener('click', async () => {
+            installBtn.classList.add('hidden');
+            if(deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                deferredPrompt = null;
+            }
+        });
+    }
 
     // Login logic
     loginBtn.addEventListener('click', async () => {
         const password = passwordInput.value;
         if (!password) return;
         
-        // Let's test the password by fetching the DB and trying to decrypt
         try {
             const res = await fetch(KVDB_URL);
             if (!res.ok) {
-                // If the DB doesn't exist yet, we initialize it
                 if (password === '0923') {
                     aesKey = password;
-                    sessionStorage.setItem('aesKey', aesKey);
+                    localStorage.setItem('aesKey', aesKey);
                     await initializeDB();
                     showApp();
                 } else {
@@ -53,13 +73,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await res.json();
             
-            // If data is stored plainly (from previous test), upgrade it
             if (data.tasks) {
                 if (password === '0923') {
                     aesKey = password;
-                    sessionStorage.setItem('aesKey', aesKey);
+                    localStorage.setItem('aesKey', aesKey);
                     tasks = data.tasks;
-                    await saveTasks(); // Re-save with encryption
+                    await saveTasks();
                     showApp();
                     return;
                 }
@@ -72,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (decryptedData && Array.isArray(decryptedData.tasks)) {
                         aesKey = password;
-                        sessionStorage.setItem('aesKey', aesKey);
+                        localStorage.setItem('aesKey', aesKey);
                         tasks = decryptedData.tasks;
                         showApp();
                     } else {
@@ -82,10 +101,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     loginError.textContent = '密碼錯誤';
                 }
             } else {
-                // Empty or corrupted
                 if (password === '0923') {
                     aesKey = password;
-                    sessionStorage.setItem('aesKey', aesKey);
+                    localStorage.setItem('aesKey', aesKey);
                     await initializeDB();
                     showApp();
                 } else {
@@ -103,12 +121,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function checkAuth() {
-        const storedAesKey = sessionStorage.getItem('aesKey');
+        const storedAesKey = localStorage.getItem('aesKey');
         if (storedAesKey) {
             aesKey = storedAesKey;
             fetchTasks().then(success => {
                 if (success) {
                     showApp();
+                    startPolling();
                 } else {
                     showLogin();
                 }
@@ -127,11 +146,31 @@ document.addEventListener('DOMContentLoaded', () => {
         loginContainer.classList.add('hidden');
         appContainer.classList.remove('hidden');
         
-        // Jump to current day
         currentDate = new Date();
         const todayStr = formatDateStr(currentDate);
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
         selectDate(todayStr);
+        
+        if (!window.pollingInterval) {
+            startPolling();
+        }
+    }
+
+    function startPolling() {
+        window.pollingInterval = setInterval(async () => {
+            const previousTasksJSON = JSON.stringify(tasks);
+            const success = await fetchTasks();
+            if (success) {
+                const newTasksJSON = JSON.stringify(tasks);
+                if (previousTasksJSON !== newTasksJSON) {
+                    // Data changed remotely, re-render
+                    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+                    if (selectedDate) {
+                        renderTasksForDate(selectedDate);
+                    }
+                }
+            }
+        }, 3000); // Poll every 3 seconds
     }
 
     // Calendar logic
@@ -164,14 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const todayStr = formatDateStr(today);
 
-        // Fill empty days
         for (let i = 0; i < startingDay; i++) {
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'day empty';
             calendarDays.appendChild(emptyDiv);
         }
 
-        // Fill days
         for (let i = 1; i <= totalDays; i++) {
             const dayDiv = document.createElement('div');
             dayDiv.className = 'day';
@@ -255,14 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return false;
         } catch (err) {
-            console.error('Failed to fetch tasks', err);
             return false;
         }
     }
 
     async function saveTasks() {
         try {
-            // Encrypt data before saving
             const plainJson = JSON.stringify({ tasks });
             const ciphertext = CryptoJS.AES.encrypt(plainJson, aesKey).toString();
             
@@ -271,11 +306,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ encrypted: ciphertext })
             });
-            // Update calendar dots if needed
             renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
         } catch (err) {
             console.error('Failed to save tasks', err);
-            alert('儲存失敗，請檢查網路連線');
         }
     }
 
@@ -308,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkbox.addEventListener('change', async () => {
                 task.is_done = checkbox.checked ? 1 : 0;
                 item.className = `task-item ${task.is_done ? 'done' : ''}`;
-                await saveTasks(); // Sync to cloud
+                await saveTasks();
             });
             
             const text = document.createElement('span');

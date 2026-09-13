@@ -85,7 +85,7 @@ header {
     gap: 15px;
 }
 
-.month-controls button, #today-btn {
+.month-controls button, #today-btn, #install-btn {
     padding: 8px 12px;
     border: 1px solid var(--border-color);
     background-color: white;
@@ -93,7 +93,7 @@ header {
     cursor: pointer;
 }
 
-.month-controls button:hover, #today-btn:hover {
+.month-controls button:hover, #today-btn:hover, #install-btn:hover {
     background-color: #f0f0f0;
 }
 
